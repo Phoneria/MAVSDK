@@ -1,70 +1,48 @@
 import asyncio
 from mavsdk import System
 from mavsdk.action import OrbitYawBehavior
-import my_connection
-import time 
-import signal
 
-target_altitude = 10
+lat_deg = 39.87241710265067
+long_deg = 32.73220615380094
 
-
-async def go():
+async def run():
     drone = System()
     await drone.connect(system_address="udp://:14540")
-    print("DRONE STARTED TO TAKEOFF")
 
-    await drone.action.set_takeoff_altitude(target_altitude)
+    print("Waiting for drone to connect...")
+    async for state in drone.core.connection_state():
+        if state.is_connected:
+            print("Drone discovered!")
+            break
+
+    print("Waiting for drone to have a global position estimate...")
+    async for health in drone.telemetry.health():
+        if health.is_global_position_ok and health.is_home_position_ok:
+            print("-- Global position estimate OK")
+            break
 
     position = await drone.telemetry.position().__aiter__().__anext__()
-    orbit_height = position.absolute_altitude_m + target_altitude
+    orbit_height = position.absolute_altitude_m+10
     yaw_behavior = OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER
 
-
-    print("ARMING")
+    print("-- Arming")
     await drone.action.arm()
 
-    print("TAKING OFF")
-    print("TAKEOFF ALTITUDE : ", target_altitude)
+    print("--- Taking Off")
     await drone.action.takeoff()
+    await asyncio.sleep(10)
 
-    await asyncio.sleep(target_altitude/2  + 10) #  Wait For takeoff
-    
-
-    
     print('Do orbit at 10m height from the ground')
     await drone.action.do_orbit(radius_m=10,
                                 velocity_ms=2,
                                 yaw_behavior=yaw_behavior,
-                                latitude_deg=47.398036222362471,
-                                longitude_deg=8.5450146439425509,
+                                latitude_deg=lat_deg,
+                                longitude_deg=long_deg,
                                 absolute_altitude_m=orbit_height)
     await asyncio.sleep(60)
 
     await drone.action.return_to_launch()
-    print("RETURN TO LAUNCH")
-
-    print("DO ORBIT MISSION COMPLETED")
-
-    
-class TimeoutError(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutError("FUNCTION EXECUTION TIMEOUT")
-
+    print("--- Landing")
 
 if __name__ == "__main__":
-    # Check if connection takes longer than connection_time second
-    connection_time = 30
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(connection_time)  # Set the alarm for connection_time seconds
-    try:
-        #time.sleep(5)
-        asyncio.run(my_connection.main())    
-    except TimeoutError:
-        print(f"Function took longer than {connection_time} seconds to execute")
-        exit()
-    finally:
-        signal.alarm(0)  # Cancel the alarm
-    
-    asyncio.run(go())
+    asyncio.run(run())
